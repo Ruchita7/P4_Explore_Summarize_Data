@@ -1,0 +1,380 @@
+Financial Contributions to Presidential Campaigns by State by Ruchita Maheshwary
+================================================================================
+
+In this report, I analyzed the data set for around 1304500 contributions for 
+presidential elections from the state of California.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+
+library(ggplot2)
+library(gender)
+library(tidyr)
+library(dplyr)
+
+```
+
+```{r echo=FALSE, Load_the_Data}
+# Load the Data
+df <-read.csv('P00000001-CA.csv',row.names = NULL)
+#matching correct column names with the data
+colnames(df) <- c(colnames(df)[-1],"x")
+df$x <- NULL
+
+```
+
+**Brief description about the dataset variables:**
+
+* COMMITTEE ID- A 9-character alpha-numeric code assigned to a committee by the 
+Federal Election Commission. 
+
+* CANDIDATE ID - A 9-character alpha-numeric code assigned to a candidate by the
+Federal Election Commission. 
+
+* CANDIDATE NAME
+
+* CONTRIBUTOR NAME - Reported name of the contributor.
+
+* CONTRIBUTOR CITY - Reported city of the contributor.
+
+* CONTRIBUTOR STATE - Reported state of the contributor.
+
+* CONTRIBUTOR ZIP CODE - Reported zip code of the contributor.
+
+* CONTRIBUTOR EMPLOYER - Reported employer of the contributor.
+
+* CONTRIBUTOR OCCUPATION - Reported occupation of the contributor.
+
+* CONTRIBUTION RECEIPT AMOUNT - Reported contribution amount.
+
+* CONTRIBUTION RECEIPT DATE - Reported contribution receipt date.  
+  The date format is DD-MMM-YYYY.
+
+* RECEIPT DESCRIPTION - Additional information reported by the committee about 
+  a specific contribution. 
+
+* MEMO CODE - 'X' indicates the reporting committee has provided additional text
+to describe a specific contribution.  See the MEMO TEXT.  
+
+* MEMO TEXT - Additional information reported by the committee about a specific 
+contribution.  
+
+* FORM TYPE - Indicates what schedule and line number the reporting committee
+reported a specific transaction.<br/>   
+
+    * SA17A:  Form 3P Schedule A Line 17A<br/>
+    * SA18:   Form 3P Schedule A Line 18<br/>
+    * SB28A:  Form 3P Schedule B Line 28A<br/>  
+
+* FILE NUMBER - A unique number assigned to a report and all its associated 
+transactions.   
+
+* TRANSACTION ID - A unique identifier permanently associated with each
+itemization or transaction appearing in an FEC electronic file.
+
+* ELECTION TYPE / PRIMARY-GENERAL INDICATOR - This code indicates the election 
+for which the contribution was made. EYYYY (election plus election year)<br/>
+
+    * P = Primary<br/>
+    * G = General<br/>
+    * O = Other<br/>
+    * C = Convention<br/>
+    * R = Runoff<br/>
+    * S = Special<br/>
+    * E = Recount<br/>
+
+
+# Univariate Plots Section
+
+```{r echo=FALSE, Univariate_Plots}
+names(df)
+
+str(df)
+
+summary(df)
+```
+
+```{r echo=FALSE, load_first_last_name}
+#Load candidates by first and last name
+df$cand_nm.new <- as.character(df$cand_nm)
+#split candidate name by first and last name and identify unique candidate names
+#in the data set
+ca_contrib <- extract(df, cand_nm.new, c("last_name","first_name"), 
+                      "(.*),\\s*(\\S*)\\s*.*", fill="left",perl=TRUE)
+ca_candidates <- unique(ca_contrib$first_name)
+
+```
+
+```{r echo=FALSE, candidate_gender}
+#Load gender of candidates
+#retrieve gender of the candidates with year of birth between 1941-1971
+gender <- gender(as.character(ca_candidates), c(1941, 1971),method = "ssa",
+                 countries = "United States")
+#join with the data set the gender data and remove additional columns
+ca_contrib<-left_join(x=ca_contrib,y=gender,by=c("first_name"= "name"))
+names(ca_contrib)[names(ca_contrib) == 'gender'] <- 'candidate_gender'
+drop <- c("name","proportion_male","proportion_female","year_min","year_max")
+ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
+ca_contrib$candidate_gender <- as.factor(ca_contrib$candidate_gender)
+```
+
+```{r echo=FALSE, load_contributor_details}
+#Repeat the same process for contributors
+ca_contrib$contrib_nm.new <- as.character(ca_contrib$contbr_nm)
+#retrieve contributor first and last name
+ca_contrib <- extract(ca_contrib, contrib_nm.new, c("contrib_last_name",
+                                                    "contrib_first_name"),
+                      "(.*),\\s*(\\S*)\\s*.*", fill="left",perl=TRUE)
+ca_contributors <- unique(ca_contrib$contrib_first_name)
+#retrieve gender of the contributors with year of birth between 1922-1997
+gender_contrib <- gender(as.character(ca_contributors), c(1922, 1997),
+                         method = "ssa",countries = "United States")
+#join with the data set the gender data and remove additional columns
+ca_contrib<-left_join(x=ca_contrib,y=gender_contrib,
+                      by=c("contrib_first_name"= "name"))
+names(ca_contrib)[names(ca_contrib) == 'gender'] <- 'contributor_gender'
+drop <- c("contrib_last_name","contrib_first_name","name",
+          "proportion_male","proportion_female","year_min","year_max")
+ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
+ca_contrib$contributor_gender <- as.factor(ca_contrib$contributor_gender)
+
+```
+
+```{r echo=FALSE, remove_columns}
+#Removing non-usable columns from data frame like committe id,receipt 
+#description and redundant columns like contributor state etc
+drop <- c("cmte_id","contbr_st","receipt_desc","memo_cd",
+          "memo_text","tran_id")
+ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
+
+```
+
+```{r echo=FALSE, load_candidate_party}
+#Add column of political party for each presidential election candidate based on
+#candidate last name
+
+candidateParty <- function(x) {
+    if(is.na(x)){
+      NA
+    }else if(x == "Clinton" | x == "Sanders" | x == "O'Malley" | x=="Lessig" 
+             | x=="Webb"){
+      "Democratic"
+    }else if(x == "Johnson"){
+      "Libertarian"
+    }else if(x=="Stein"){
+      "Green"
+    }else if(x=="McMullin") {
+      "Independents"
+    }else {
+      "Republican"
+    }
+}
+
+ca_contrib$party <- apply(ca_contrib['last_name'],1,candidateParty)
+
+```
+
+```{r echo=FALSE, load_election_type}
+
+#Add election type description for "election_tp" column
+
+electionType <- function(x) {
+  if(is.na(x))  {
+    NA
+  }else if(substr(x, 1, 1)=="P")  {
+    "Primary"
+  }else if(substr(x, 1, 1)=="G")  {
+    "General"
+  }else if(substr(x, 1, 1)=="O")  {
+    "Other"
+  }else if(substr(x, 1, 1)=="C")  {
+    "Convention"
+  }else if(substr(x, 1, 1)=="R")  {
+    "Runoff"
+  }else if(substr(x, 1, 1)=="S")  {
+    "Special"
+  }else {
+    "Recount"
+  }
+}
+
+ca_contrib$election_type <- apply(ca_contrib['election_tp'],1,electionType)
+drop <- c("election_tp")
+ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
+  
+```
+
+
+```{r echo=FALSE, retrieve_contribution_dates}
+
+#Obtain contribution month/year
+ca_contrib$contribution_date <- as.Date(ca_contrib$contb_receipt_dt,"%d-%B-%y")
+ca_contrib$contrib_year = as.numeric(format(ca_contrib$contribution_date,format="%Y"))
+ca_contrib$contrib_month = months(as.Date(ca_contrib$contribution_date))
+ca_contrib = ca_contrib[,!(names(ca_contrib) %in% c("contribution_date"))]
+
+```
+
+
+```{r  echo=FALSE, contribution_amounts}
+#On analyzing the data I found some negative contributions as well which were 
+#basically refunds (typically following a candidate dropping out of the race). 
+#So will subset the data into positive and negative contributions
+
+positive_ca_contrib_amt <-subset(ca_contrib,contb_receipt_amt>0)
+negative_ca_contrib_amt <-subset(ca_contrib,contb_receipt_amt<=0)
+
+```
+
+After cleaning the data our dataset contains 1304346 observations of 19 variables.
+
+Plot for male/female candidate count in the presidential election
+```{r  echo=FALSE, gender_plot}
+qplot(gender,data=gender)
+
+```
+
+Plot for contribution amount 
+```{r echo=FALSE,message=FALSE, warning=FALSE, plot_contribution_amounts}
+
+#summary(positive_ca_contrib_amt$contb_receipt_amt)
+
+qplot(x=contb_receipt_amt,data=positive_ca_contrib_amt,binwidth=100)+
+ scale_x_continuous(limits=c(0,11000),breaks=seq(0,110000,2000))
+
+
+```
+
+```{r echo=FALSE,message=FALSE, warning=FALSE, plot_log_contribution_amounts}
+
+ggplot(aes(x=contb_receipt_amt),data=positive_ca_contrib_amt)+
+  geom_histogram(binwidth=100)+
+  scale_y_sqrt()
+
+```
+
+
+
+```{r}
+#by(positive_ca_contrib_amt$contb_receipt_amt,positive_ca_contrib_amt$candidate_gender,summary)
+qplot(x=contb_receipt_amt,data=positive_ca_contrib_amt,binwidth=200)+
+
+  facet_wrap(~candidate_gender)
+```
+
+# Univariate Analysis
+
+> **Tip**: Now that you've completed your univariate explorations, it's time to
+reflect on and summarize what you've found. Use the questions below to help you
+gather your observations and add your own if you have other thoughts!
+
+### What is the structure of your dataset?
+
+### What is/are the main feature(s) of interest in your dataset?
+
+### What other features in the dataset do you think will help support your \
+investigation into your feature(s) of interest?
+
+### Did you create any new variables from existing variables in the dataset?
+
+### Of the features you investigated, were there any unusual distributions? \
+Did you perform any operations on the data to tidy, adjust, or change the form \
+of the data? If so, why did you do this?
+
+
+# Bivariate Plots Section
+
+> **Tip**: Based on what you saw in the univariate plots, what relationships
+between variables might be interesting to look at in this section? Don't limit
+yourself to relationships between a main output feature and one of the
+supporting variables. Try to look at relationships between supporting variables
+as well.
+
+```{r echo=FALSE, Bivariate_Plots}
+
+```
+
+# Bivariate Analysis
+
+> **Tip**: As before, summarize what you found in your bivariate explorations
+here. Use the questions below to guide your discussion.
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. How did the feature(s) of interest vary with other features in \
+the dataset?
+
+### Did you observe any interesting relationships between the other features \
+(not the main feature(s) of interest)?
+
+### What was the strongest relationship you found?
+
+
+# Multivariate Plots Section
+
+> **Tip**: Now it's time to put everything together. Based on what you found in
+the bivariate plots section, create a few multivariate plots to investigate
+more complex interactions between variables. Make sure that the plots that you
+create here are justified by the plots you explored in the previous section. If
+you plan on creating any mathematical models, this is the section where you
+will do that.
+
+```{r echo=FALSE, Multivariate_Plots}
+
+```
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. Were there features that strengthened each other in terms of \
+looking at your feature(s) of interest?
+
+### Were there any interesting or surprising interactions between features?
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the \
+strengths and limitations of your model.
+
+------
+
+# Final Plots and Summary
+
+> **Tip**: You've done a lot of exploration and have built up an understanding
+of the structure of and relationships between the variables in your dataset.
+Here, you will select three plots from all of your previous exploration to
+present here as a summary of some of your most interesting findings. Make sure
+that you have refined your selected plots for good titling, axis labels (with
+units), and good aesthetic choices (e.g. color, transparency). After each plot,
+make sure you justify why you chose each plot by describing what it shows.
+
+### Plot One
+```{r echo=FALSE, Plot_One}
+
+```
+
+### Description One
+
+
+### Plot Two
+```{r echo=FALSE, Plot_Two}
+
+```
+
+### Description Two
+
+
+### Plot Three
+```{r echo=FALSE, Plot_Three}
+
+```
+
+### Description Three
+
+------
+
+# Reflection
+
+> **Tip**: Here's the final step! Reflect on the exploration you performed and
+the insights you found. What were some of the struggles that you went through?
+What went well? What was surprising? Make sure you include an insight into
+future work that could be done with the dataset.
+
+> **Tip**: Don't forget to remove this, and the other **Tip** sections before
+saving your final work and knitting the final report!
