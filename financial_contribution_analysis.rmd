@@ -1,5 +1,13 @@
-Financial Contributions to Presidential Campaigns by State by Ruchita Maheshwary
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+Financial Contributions to Presidential Campaigns by State 
 ================================================================================
+
+### By Ruchita Maheshwary
 
 In this report, I analyzed the data set for around 1304500 contributions for 
 presidential elections from the state of California.
@@ -9,16 +17,20 @@ presidential elections from the state of California.
 library(ggplot2)
 library(gender)
 library(tidyr)
+library(data.table)
 library(dplyr)
+theme_update(axis.title=element_text(size=12),axis.text=element_text(size=10),
+             plot.title=element_text(size=14))
 
 ```
 
 ```{r echo=FALSE, Load_the_Data}
-# Load the Data
-df <-read.csv('P00000001-CA.csv',row.names = NULL)
+# Load the Data with replacing blank values with N/A
+df <-read.csv('P00000001-CA.csv',na.strings=c("", "N/A"),row.names = NULL)
 #matching correct column names with the data
 colnames(df) <- c(colnames(df)[-1],"x")
 df$x <- NULL
+
 
 ```
 
@@ -86,11 +98,13 @@ for which the contribution was made. EYYYY (election plus election year)<br/>
 # Univariate Plots Section
 
 ```{r echo=FALSE, Univariate_Plots}
-names(df)
+
+dim(df)
 
 str(df)
 
 summary(df)
+
 ```
 
 ```{r echo=FALSE, load_first_last_name}
@@ -142,9 +156,10 @@ ca_contrib$contributor_gender <- as.factor(ca_contrib$contributor_gender)
 ```{r echo=FALSE, remove_columns}
 #Removing non-usable columns from data frame like committe id,receipt 
 #description and redundant columns like contributor state etc
-drop <- c("cmte_id","contbr_st","receipt_desc","memo_cd",
-          "memo_text","tran_id")
-ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
+
+
+#drop <- c("cmte_id","contbr_st","receipt_desc","memo_cd","memo_text","tran_id")
+#ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
 
 ```
 
@@ -208,77 +223,273 @@ ca_contrib = ca_contrib[,!(names(ca_contrib) %in% drop)]
 
 #Obtain contribution month/year
 ca_contrib$contribution_date <- as.Date(ca_contrib$contb_receipt_dt,"%d-%B-%y")
-ca_contrib$contrib_year = as.numeric(format(ca_contrib$contribution_date,format="%Y"))
+ca_contrib$contrib_year = as.numeric(format(ca_contrib$contribution_date,
+                                            format="%Y"))
 ca_contrib$contrib_month = months(as.Date(ca_contrib$contribution_date))
-ca_contrib = ca_contrib[,!(names(ca_contrib) %in% c("contribution_date"))]
+#ca_contrib = ca_contrib[,!(names(ca_contrib) %in% c("contribution_date"))]
 
 ```
 
 
-```{r  echo=FALSE, contribution_amounts}
+```{r  echo=FALSE, message=FALSE, warning=FALSE, contribution_amounts}
 #On analyzing the data I found some negative contributions as well which were 
 #basically refunds (typically following a candidate dropping out of the race). 
 #So will subset the data into positive and negative contributions
 
-positive_ca_contrib_amt <-subset(ca_contrib,contb_receipt_amt>0)
-negative_ca_contrib_amt <-subset(ca_contrib,contb_receipt_amt<=0)
+#positive_ca_contrib_amt <-subset(ca_contrib,contb_receipt_amt>0)
+#negative_ca_contrib_amt <-subset(ca_contrib,contb_receipt_amt<=0)
 
 ```
 
-After cleaning the data our dataset contains 1304346 observations of 19 variables.
+After cleaning the data our dataset contains 1304346 observations of 26 
+variables.
 
-Plot for male/female candidate count in the presidential election
-```{r  echo=FALSE, gender_plot}
-qplot(gender,data=gender)
+I want to determine count of male/female candidates who contested the 
+Presidential election. Plot for male/female candidate count in 
+the presidential election
+```{r  echo=FALSE,message=FALSE, warning=FALSE, gender_plot}
+
+ggplot(gender,aes(x=as.factor(gender)))+
+  geom_bar()+
+    labs(x="Candidate gender",title = "Candidate Gender Bar plot")
+  
+
+table(gender$gender)
+```
+
+From this plot its clear the proportion of male candidates has been more than 
+the female candidates in the presidential elections with 3 female candidates 
+v/s 20 male candidates
+
+```{r echo=FALSE,warning=FALSE,message=FALSE, candidate_party_plot_count}
+
+candidate_party<-unique(data.table(ca_contrib),by=c("cand_nm"))
+table(candidate_party$party)
+
+qplot(x=party,data=candidate_party,xlab = "Political Party")+
+  ggtitle("Candidate count per political party")
 
 ```
 
-Plot for contribution amount 
+From this plot its clear that the number of candidates contesting the 
+presidential election with the maximum being for Republican party with count
+of 17 followed by Democratic having count of 5
+
+
+I wanted to analyze the contributions made per political party
+
+```{r echo=FALSE,warning=FALSE,message=FALSE, contrib_party_plot}
+
+election_party_contrib<-summarise(group_by(ca_contrib,party),
+                                  count =n())
+
+election_party_contrib
+
+ggplot(aes(x=party,y=count),data=election_party_contrib)+
+  geom_bar(stat="identity")+
+  xlab("Election Party")+
+  ggtitle("Plotting contribution per party")+
+  scale_y_log10()
+
+```
+
+Here the contribution had been maximum for Democratic candidates with count of 
+1096563, followed by 2842 for Greens.
+
+
+On analyzing the dataset, I found large number of negative 
+contribution amounts for the contributors which on digging further I found 
+were refunds when the candidate drops out of the race. So I summed the
+contribution amount based on the contributor details and the candidate for
+whom contribution has been made.There are still some negative values present
+which might mean that some data is missing due to which the contribution
+amounts have not been cancelled out in the cleaned data set.
+
 ```{r echo=FALSE,message=FALSE, warning=FALSE, plot_contribution_amounts}
 
-#summary(positive_ca_contrib_amt$contb_receipt_amt)
+#Summed the total contribution based on contibutor and candidate
 
-qplot(x=contb_receipt_amt,data=positive_ca_contrib_amt,binwidth=100)+
- scale_x_continuous(limits=c(0,11000),breaks=seq(0,110000,2000))
+ca_contrib_amt<-ca_contrib%>% 
+  group_by(cand_nm,candidate_gender,contbr_nm,party,contbr_city,contbr_zip,
+           contributor_gender,contbr_occupation,election_type) %>%
+  summarise(total_contrib = sum(contb_receipt_amt))
+
+contrib_density <-density(ca_contrib_amt$total_contrib)
+plot(contrib_density,main="Contributor Density Amount")
+
+summary(ca_contrib_amt$total_contrib)
+
+```
+
+The above contributor density plot still shows lot of negative contribution 
+amount, which for the purpose of this investigation should be ignored. 
+
+```{r echo=FALSE,message=FALSE, warning=FALSE, plot_contribution_amounts_limits}
+
+qplot(x=total_contrib,data=ca_contrib_amt,binwidth=50,
+      xlab = "Total contribution")+
+  scale_x_continuous(limits = c(0,3000),breaks = seq(0,43000,1000))+
+  ggtitle("Plot for contributions amount")
+
+```
+
+I transformed the total contribution visualization to get a better understanding
+of the plot by re- arranging the axis from 0 to 3000 since maximum contribution 
+appear in the range  of 0-3000$. The plot is positively skewed with an outlier 
+at around 2800$. The maximum contribution appears in the range 0-500$.
+
+
+```{r echo=FALSE,message=FALSE, warning=FALSE, plot_contb_occuption}
+
+#Find the top 10 contributor occupation
+contributor_occupation<-summarise(group_by(ca_contrib,contbr_occupation),
+                                  count =n())
+contributor_occupation<-arrange(contributor_occupation,desc(count))[1:10,]
+
+contributor_occupation
+
+ggplot(aes(x=contbr_occupation,y=count),data=contributor_occupation)+
+  geom_bar(stat="identity")+
+  xlab("Contributor occupation")+
+  ggtitle("Plotting Frequent contributors occupation")+
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5,size = 10))
+
+```
+
+I wanted to determine the overall  occupation of contributors who contributed 
+in the presidential elections. So the Bar plot above represents the top 10 
+contributor's occupation  with the top most being Retired having count of 
+260546.
+
+
+```{r echo=FALSE,message=FALSE, warning=FALSE, plot_contb_employer}
+
+#Find the top 10 contributor employer
+contributor_employer<-summarise(group_by(ca_contrib,contbr_employer),
+                                  count =n())
+contributor_employer<-arrange(contributor_employer,desc(count))[1:10,]
+
+contributor_employer
+
+ggplot(aes(x=contbr_employer,y=count),data=contributor_employer)+
+  geom_bar(stat="identity")+
+  xlab("Contributor Employer")+
+  ggtitle("Plotting frequent contributor's employers")+
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5,size = 10))
 
 
 ```
 
-```{r echo=FALSE,message=FALSE, warning=FALSE, plot_log_contribution_amounts}
+Also I want to determine who were the employers whose employees participated 
+in the contribution. From this bar plot it shows that contributors 
+having blank employement information have the highest count of contribution 
+followed by the retired employees in this dataset. The reason for this
+blank employee information I could think of could be because of either missing 
+data/employee's didn't want to disclose their employer at the time of filing 
+these contributions or probably they didn't have any employer!!
 
-ggplot(aes(x=contb_receipt_amt),data=positive_ca_contrib_amt)+
-  geom_histogram(binwidth=100)+
-  scale_y_sqrt()
+
+Similarly I want to determine the year with the maximum contributions made by
+the contributors.
+
+```{r  echo=FALSE,message=FALSE, warning=FALSE, contribution_per_year}
+
+qplot(x=contrib_year,data=ca_contrib,xlab = "Contribution year")+
+  ggtitle("Contributions based on year")
+
+table(ca_contrib$contrib_year)
 
 ```
 
+This shows that the maximum contribution from years 2013-2016 has been in year
+2016. And though this data is for 2016 presidential election, there are some
+insignificant count of contributions made in the year 2013-2014 which have
+been identified while plotting this visualization.
 
+```{r echo=FALSE,message=FALSE, warning=FALSE, boxplot_contribution_gender}
 
-```{r}
-#by(positive_ca_contrib_amt$contb_receipt_amt,positive_ca_contrib_amt$candidate_gender,summary)
-qplot(x=contb_receipt_amt,data=positive_ca_contrib_amt,binwidth=200)+
+qplot(x = contributor_gender,y = total_contrib, 
+      data = subset(ca_contrib_amt,!is.na(contributor_gender)),
+      geom='boxplot',xlab = "Gender", ylab = "Contributions")+
+  coord_cartesian(ylim = c(0,2000))+
+  ggtitle("Contributions based on gender")
 
-  facet_wrap(~candidate_gender)
+by(ca_contrib_amt$total_contrib,ca_contrib_amt$contributor_gender,summary)
 ```
+
+This plot above shows the contribution made on the basis of gender by 
+male/female contributors. I chose to ignore the negative contributions as well
+as the contributors whose gender could not de determined from gender package. 
+So I set the range of this boxplot to 0-2000 dollars.
+This boxplot shows that for female contributors 25 percent contributed less 
+than 78 dollars and for male contributors this amount is 80 dollars. 
+The median for female and male contributors had been 200 dollars and 215 
+dollars respectively.25% of female and male contributors contributed more than 
+500 dollars and with the maximum being 21250 dollars for females and 27000
+dollars for males.
 
 # Univariate Analysis
 
-> **Tip**: Now that you've completed your univariate explorations, it's time to
-reflect on and summarize what you've found. Use the questions below to help you
-gather your observations and add your own if you have other thoughts!
 
 ### What is the structure of your dataset?
 
+There were 304346 records of presidential election contribution in the year 
+2016 from the state of California in this dataset with around 18 variables.
+The factored variables in this data set are form type with 
+values (SA17A,SA18,SB28A), Election type with values (Primary,General,Other,
+Convention,Runoff,Special,Recount).
+
+Other observations about the dataset :<br/>
+* Most candidates are male<br/>
+* Maximum number of contesting candidates were from Democratic party<br/>
+* Maximum number of contributions had been for Democratic party candidates<br/>
+* Most number of contribution amounts had been in the range 0-3000$<br/>
+* "Retired" occupation had the maximum number of contributors<br/>
+* Maximum contribution amount had been from male contributors.<br/>
+
 ### What is/are the main feature(s) of interest in your dataset?
+
+The main feature that interests me in this dataset are the contribution amount
+and the candidate for whom this contribution has been made.I'd like to examine
+whatfeatures influences contributors to contribute to a political party. 
+Probably the contributor has some affiliations to a political party or maybe 
+some other variable combinations can be used to determine a predictive model.
 
 ### What other features in the dataset do you think will help support your \
 investigation into your feature(s) of interest?
 
+The candidate's political party, candidate name, election type, candidate's
+gender, contributor's gender are some of the factors I could think of which
+might influence a contributor to contribute for a particular candidate. On the
+basis of my current analysis, I think political party plays a definitive role
+in the contribution.
+
 ### Did you create any new variables from existing variables in the dataset?
+
+Yes, I added a couple of variables in the dataset which would help me further
+in my analysis. These variables were<br/>
+* first_name and last_name: first and last name of candidate<br/>
+* candidate_gender : gender of candidate<br/>
+* party: political party of the candidate<br/>
+* election_type: identified type of election from abbreviated election_type like
+  Primary, General etc.<br/>
+* contrib_year: Contribtion year extracted from contribution date<br/>
+* contrib_month: contribution month extracted from contribution date<br/>
+
 
 ### Of the features you investigated, were there any unusual distributions? \
 Did you perform any operations on the data to tidy, adjust, or change the form \
 of the data? If so, why did you do this?
+
+While analyzing thecontribution amounts, I found large number of negative 
+contribution amounts which were basically refunds made to the contributors.
+Since having negative contributions are not valid contributions.So to tidy this 
+dataset, I summed the total contributions contribution amount based on 
+contributor details and candidate contributed to in a variable called 
+total_contrib in another dataset and plotted visualizations based on the same.
+Also large number of columns had blank values associated with them, considering
+which could lead to incorrect analysis, so I replaced these blank values with
+"N/A"
 
 
 # Bivariate Plots Section
